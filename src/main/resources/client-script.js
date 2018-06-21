@@ -1,7 +1,7 @@
 if (!window.PublicKeyCredential) { alert("No, this won't work. Stop doing this."); }
 
 var publicKey = {
-    challenge: new Uint8Array([%1$s]),
+    challenge: new Uint8Array(%1$s),
 
     // Relying Party:
     rp: {

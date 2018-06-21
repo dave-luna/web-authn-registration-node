@@ -24,6 +24,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Optional;
 
 import javax.inject.Inject;
@@ -52,7 +53,7 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
-    private final byte[] challengeBytes = new byte[32];
+    private static final int[] positiveBytes = new int[32];
 
     /**
      * Configuration for the node.
@@ -67,10 +68,16 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     public WebAuthnRegistrationNode(@Assisted Config config) {
         this.config = config;
 
+        final byte[] challengeBytes = new byte[32];
+
         try {
             SecureRandom.getInstanceStrong().nextBytes(challengeBytes);
         } catch (NoSuchAlgorithmException e) {
             e.printStackTrace();
+        }
+
+        for (int i = 0; i < challengeBytes.length; i++) {
+            positiveBytes[i] = challengeBytes[i] & 0xff;
         }
 
     }
@@ -78,6 +85,8 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     public Action process(TreeContext context) throws NodeProcessException {
 
         String script = getScriptAsString("client-script.js");
+
+        script = String.format(script, Arrays.toString(positiveBytes));
 
         Optional<String> result = context.getCallback(HiddenValueCallback.class)
                 .map(HiddenValueCallback::getValue)
@@ -90,8 +99,8 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             }
         } else {
             ScriptTextOutputCallback scriptAndSelfSubmitCallback = new ScriptTextOutputCallback(script);
-            HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(config.scriptResult());
-            ImmutableList<Callback> callbacks = ImmutableList.of(scriptAndSelfSubmitCallback, hiddenValueCallback);
+          //  HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(config.scriptResult());
+            ImmutableList<Callback> callbacks = ImmutableList.of(scriptAndSelfSubmitCallback);
             return send(callbacks).build();
         }
     }
