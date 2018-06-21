@@ -20,6 +20,7 @@ import static org.forgerock.openam.auth.node.api.Action.send;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.NoSuchAlgorithmException;
@@ -31,6 +32,7 @@ import javax.inject.Inject;
 import javax.security.auth.callback.Callback;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.forgerock.guava.common.base.Strings;
 import org.forgerock.guava.common.collect.ImmutableList;
 import org.forgerock.openam.annotations.sm.Attribute;
@@ -107,13 +109,13 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
     // Reads a file stored under resources as a string
     private String getScriptAsString(String scriptFileName) throws NodeProcessException {
-        URL fileUrl = getClass().getClassLoader().getResource(scriptFileName);
+        InputStream resourceStream = getClass().getClassLoader().getResourceAsStream(scriptFileName);
+
         String script;
         try {
-            File dir = new File(fileUrl.toURI());
-            script = FileUtils.readFileToString(dir);
-        } catch (URISyntaxException | IOException e) {
-            logger.error("failed to get the script, fatal error!", e);
+            script = IOUtils.toString(resourceStream, "UTF-8");
+        } catch (IOException e) {
+            logger.error("Failed to get the script, fatal error!", e);
             throw new NodeProcessException(e);
         }
         return script;
