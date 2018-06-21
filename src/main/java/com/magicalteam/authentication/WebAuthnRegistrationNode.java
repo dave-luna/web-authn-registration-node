@@ -52,6 +52,7 @@ import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
         configClass = WebAuthnRegistrationNode.Config.class)
 public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
+    public static final String OUTCOME = "outcome";
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
@@ -62,8 +63,7 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
      */
     public interface Config {
 
-        @Attribute(order = 200)
-        String scriptResult();
+
     }
 
     @Inject
@@ -85,24 +85,22 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
+        String submitWrapper = getScriptAsString("client-script-submit.js");
 
         String script = getScriptAsString("client-script.js");
 
         script = String.format(script, Arrays.toString(positiveBytes));
+        script = String.format(submitWrapper, script);
 
         Optional<String> result = context.getCallback(HiddenValueCallback.class)
                 .map(HiddenValueCallback::getValue)
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
         if (result.isPresent()) {
-            if (result.get().equals("true")) {
-                return goTo(true).build();
-            } else {
-                return goTo(false).build();
-            }
+            return goTo(result.get().equals("true")).build();
         } else {
             ScriptTextOutputCallback scriptAndSelfSubmitCallback = new ScriptTextOutputCallback(script);
-          //  HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(config.scriptResult());
-            ImmutableList<Callback> callbacks = ImmutableList.of(scriptAndSelfSubmitCallback);
+            HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(OUTCOME);
+            ImmutableList<Callback> callbacks = ImmutableList.of(scriptAndSelfSubmitCallback, hiddenValueCallback);
             return send(callbacks).build();
         }
     }

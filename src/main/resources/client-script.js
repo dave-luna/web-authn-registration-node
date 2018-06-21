@@ -36,7 +36,13 @@ pubKeyCredParams: [
 // Note: The following call will cause the authenticator to display UI.
 navigator.credentials.create({ publicKey })
     .then(function (newCredentialInfo) {
-        alert(newCredentialInfo); // Send new credential info to server for verification and registration.
+        //alert(newCredentialInfo); // Send new credential info to server for verification and registration.
+        console.log(newCredentialInfo);
+        output.value = newCredentialInfo;
+        submit();
     }).catch(function (err) {
-        alert(err); // No acceptable authenticator or user refused consent. Handle appropriately.
+
+        console.error(err); // No acceptable authenticator or user refused consent. Handle appropriately.
+        output.value = "false";
+        submit();
 });
