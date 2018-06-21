@@ -17,22 +17,25 @@
 package com.magicalteam.authentication;
 
 import static org.forgerock.openam.auth.node.api.Action.send;
-import static org.forgerock.openam.scripting.ScriptConstants.AUTHENTICATION_CLIENT_SIDE_NAME;
 
+import java.io.File;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.Optional;
 
 import javax.inject.Inject;
 import javax.security.auth.callback.Callback;
 
+import org.apache.commons.io.FileUtils;
 import org.forgerock.guava.common.base.Strings;
 import org.forgerock.guava.common.collect.ImmutableList;
 import org.forgerock.openam.annotations.sm.Attribute;
 import org.forgerock.openam.auth.node.api.AbstractDecisionNode;
 import org.forgerock.openam.auth.node.api.Action;
 import org.forgerock.openam.auth.node.api.Node;
+import org.forgerock.openam.auth.node.api.NodeProcessException;
 import org.forgerock.openam.auth.node.api.TreeContext;
-import org.forgerock.openam.scripting.Script;
-import org.forgerock.openam.scripting.service.ScriptConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,13 +54,6 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
      * Configuration for the node.
      */
     public interface Config {
-        /**
-         * Sets the Node to Lock or Unlock accounts.
-         * @return the intended lock status.
-         */
-        @Attribute(order = 100)
-        @Script(AUTHENTICATION_CLIENT_SIDE_NAME)
-        ScriptConfiguration script();
 
         @Attribute(order = 200)
         String scriptResult();
@@ -68,7 +64,10 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
         this.config = config;
     }
 
-    public Action process(TreeContext context) {
+    public Action process(TreeContext context) throws NodeProcessException {
+
+        String script = getScriptAsString("client-script.js");
+
         Optional<String> result = context.getCallback(HiddenValueCallback.class)
                 .map(HiddenValueCallback::getValue)
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
@@ -79,10 +78,24 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
                 return goTo(false).build();
             }
         } else {
-            ScriptTextOutputCallback scriptAndSelfSubmitCallback = new ScriptTextOutputCallback(config.script().getScript());
+            ScriptTextOutputCallback scriptAndSelfSubmitCallback = new ScriptTextOutputCallback(script);
             HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(config.scriptResult());
             ImmutableList<Callback> callbacks = ImmutableList.of(scriptAndSelfSubmitCallback, hiddenValueCallback);
             return send(callbacks).build();
         }
+    }
+
+    // Reads a file stored under resources as a string
+    private String getScriptAsString(String scriptFileName) throws NodeProcessException {
+        URL fileUrl = getClass().getClassLoader().getResource(scriptFileName);
+        String script;
+        try {
+            File dir = new File(fileUrl.toURI());
+            script = FileUtils.readFileToString(dir);
+        } catch (URISyntaxException | IOException e) {
+            logger.error("failed to get the script, fatal error!", e);
+            throw new NodeProcessException(e);
+        }
+        return script;
     }
 }
