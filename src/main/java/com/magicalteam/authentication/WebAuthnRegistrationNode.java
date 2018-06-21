@@ -14,90 +14,75 @@
  * Copyright 2018 ForgeRock AS.
  */
 
-
 package com.magicalteam.authentication;
 
-import com.google.inject.assistedinject.Assisted;
-import com.iplanet.sso.SSOException;
-import com.sun.identity.idm.AMIdentity;
-import com.sun.identity.idm.IdRepoException;
-import com.sun.identity.shared.debug.Debug;
-import org.forgerock.openam.annotations.sm.Attribute;
-import org.forgerock.openam.auth.node.api.*;
-import org.forgerock.openam.core.CoreWrapper;
+import static org.forgerock.openam.auth.node.api.Action.send;
+import static org.forgerock.openam.scripting.ScriptConstants.AUTHENTICATION_CLIENT_SIDE_NAME;
+
+import java.util.Optional;
 
 import javax.inject.Inject;
+import javax.security.auth.callback.Callback;
 
-import static org.forgerock.openam.auth.node.api.SharedStateConstants.REALM;
-import static org.forgerock.openam.auth.node.api.SharedStateConstants.USERNAME;
+import org.forgerock.guava.common.base.Strings;
+import org.forgerock.guava.common.collect.ImmutableList;
+import org.forgerock.openam.annotations.sm.Attribute;
+import org.forgerock.openam.auth.node.api.AbstractDecisionNode;
+import org.forgerock.openam.auth.node.api.Action;
+import org.forgerock.openam.auth.node.api.Node;
+import org.forgerock.openam.auth.node.api.TreeContext;
+import org.forgerock.openam.scripting.Script;
+import org.forgerock.openam.scripting.service.ScriptConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/** 
- * A node that checks to see if zero-page login headers have specified username and shared key 
- * for this request. 
- */
-@Node.Metadata(outcomeProvider  = AbstractDecisionNode.OutcomeProvider.class,
-               configClass      = WebAuthnRegistrationNode.Config.class)
+import com.google.inject.assistedinject.Assisted;
+import com.sun.identity.authentication.callbacks.HiddenValueCallback;
+import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
+
+@Node.Metadata(outcomeProvider = AbstractDecisionNode.OutcomeProvider.class,
+        configClass = WebAuthnRegistrationNode.Config.class)
 public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
+    private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
-    private final CoreWrapper coreWrapper;
-    private final static String DEBUG_FILE = "WebAuthnRegistrationNode";
-    protected Debug debug = Debug.getInstance(DEBUG_FILE);
 
     /**
      * Configuration for the node.
      */
     public interface Config {
+        /**
+         * Sets the Node to Lock or Unlock accounts.
+         * @return the intended lock status.
+         */
         @Attribute(order = 100)
-        default String usernameHeader() {
-            return "X-OpenAM-Username";
-        }
+        @Script(AUTHENTICATION_CLIENT_SIDE_NAME)
+        ScriptConfiguration script();
 
         @Attribute(order = 200)
-        default String passwordHeader() {
-            return "X-OpenAM-Password";
-        }
-
-        @Attribute(order = 300)
-        default String secretKey() {
-            return "secretKey";
-        }
+        String scriptResult();
     }
 
-
-    /**
-     * Create the node.
-     * @param config The service config.
-     * @throws NodeProcessException If the configuration was not valid.
-     */
     @Inject
-    public WebAuthnRegistrationNode(@Assisted Config config, CoreWrapper coreWrapper) throws NodeProcessException {
+    public WebAuthnRegistrationNode(@Assisted Config config) {
         this.config = config;
-        this.coreWrapper = coreWrapper;
     }
 
-    @Override
-    public Action process(TreeContext context) throws NodeProcessException {
-        boolean hasUsername = context.request.headers.containsKey(config.usernameHeader());
-        boolean hasPassword = context.request.headers.containsKey(config.passwordHeader());
-
-        if (!hasUsername || !hasPassword) {
-            return goTo(false).build();
-        }
-
-        String secret = config.secretKey();
-        String password = context.request.headers.get(config.passwordHeader()).get(0);
-        String username = context.request.headers.get(config.usernameHeader()).get(0);
-        AMIdentity userIdentity = coreWrapper.getIdentity(username, context.sharedState.get(REALM).asString());
-        try {
-            if (secret.equals(password) && userIdentity != null && userIdentity.isExists() && userIdentity.isActive()) {
-                return goTo(true).replaceSharedState(context.sharedState.copy().put(USERNAME, username)).build();
+    public Action process(TreeContext context) {
+        Optional<String> result = context.getCallback(HiddenValueCallback.class)
+                .map(HiddenValueCallback::getValue)
+                .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
+        if (result.isPresent()) {
+            if (result.get().equals("true")) {
+                return goTo(true).build();
+            } else {
+                return goTo(false).build();
             }
-        } catch (IdRepoException e) {
-            debug.error("[" + DEBUG_FILE + "]: " + "Error locating user '{}' ", e);
-        } catch (SSOException e) {
-            debug.error("[" + DEBUG_FILE + "]: " + "Error locating user '{}' ", e);
+        } else {
+            ScriptTextOutputCallback scriptAndSelfSubmitCallback = new ScriptTextOutputCallback(config.script().getScript());
+            HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(config.scriptResult());
+            ImmutableList<Callback> callbacks = ImmutableList.of(scriptAndSelfSubmitCallback, hiddenValueCallback);
+            return send(callbacks).build();
         }
-        return goTo(false).build();
     }
 }
