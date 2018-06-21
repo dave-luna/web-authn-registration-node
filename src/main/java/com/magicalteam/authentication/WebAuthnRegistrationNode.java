@@ -22,6 +22,8 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Optional;
 
 import javax.inject.Inject;
@@ -50,6 +52,8 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
+    private final byte[] challengeBytes = new byte[32];
+
     /**
      * Configuration for the node.
      */
@@ -62,6 +66,13 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     @Inject
     public WebAuthnRegistrationNode(@Assisted Config config) {
         this.config = config;
+
+        try {
+            SecureRandom.getInstanceStrong().nextBytes(challengeBytes);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
