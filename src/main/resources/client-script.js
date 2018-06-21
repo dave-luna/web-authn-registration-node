@@ -36,13 +36,11 @@ pubKeyCredParams: [
 // Note: The following call will cause the authenticator to display UI.
 navigator.credentials.create({ publicKey })
     .then(function (newCredentialInfo) {
-        //alert(newCredentialInfo); // Send new credential info to server for verification and registration.
         console.log(newCredentialInfo);
-        output.value = newCredentialInfo;
-        submit();
+        console.log(newCredentialInfo.response.clientDataJSON);
+        console.log(String.fromCharCode.apply(null, new Uint8Array(newCredentialInfo.response.clientDataJSON)));
+        document.getElementById('webAuthNOutcome').value = String.fromCharCode.apply(null, new Uint8Array(newCredentialInfo.response.clientDataJSON));
+        document.getElementById("loginButton_0").click();
     }).catch(function (err) {
-
         console.error(err); // No acceptable authenticator or user refused consent. Handle appropriately.
-        output.value = "false";
-        submit();
 });

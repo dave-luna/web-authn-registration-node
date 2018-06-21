@@ -32,7 +32,6 @@ import javax.security.auth.callback.Callback;
 import org.apache.commons.io.IOUtils;
 import org.forgerock.guava.common.base.Strings;
 import org.forgerock.guava.common.collect.ImmutableList;
-import org.forgerock.openam.annotations.sm.Attribute;
 import org.forgerock.openam.auth.node.api.AbstractDecisionNode;
 import org.forgerock.openam.auth.node.api.Action;
 import org.forgerock.openam.auth.node.api.Node;
@@ -49,7 +48,7 @@ import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
         configClass = WebAuthnRegistrationNode.Config.class)
 public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
-    public static final String OUTCOME = "outcome";
+    private static final String OUTCOME = "webAuthNOutcome";
     private static final String BUNDLE = WebAuthnRegistrationNode.class.getName().replace(".", "/");
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
@@ -83,11 +82,9 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
-        String submitWrapper = getScriptAsString("client-script-submit.js");
 
         String webAuthnRegistrationScript = getScriptAsString("client-script.js");
         webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(positiveBytes));
-        webAuthnRegistrationScript = String.format(submitWrapper, webAuthnRegistrationScript);
 
         ResourceBundle bundle = context.request.locales
                 .getBundleInPreferredLocale(BUNDLE, WebAuthnRegistrationNode.OutcomeProvider.class.getClassLoader());
@@ -103,7 +100,7 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);
-            HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(OUTCOME);
+            HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(OUTCOME, "false");
             ImmutableList<Callback> callbacks = ImmutableList.of(webAuthNRegistrationCallback, spinnerCallback,
                     hiddenValueCallback);
             return send(callbacks).build();
