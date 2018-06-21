@@ -18,20 +18,17 @@ package com.magicalteam.authentication;
 
 import static org.forgerock.openam.auth.node.api.Action.send;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URISyntaxException;
-import java.net.URL;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.ResourceBundle;
 
 import javax.inject.Inject;
 import javax.security.auth.callback.Callback;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.forgerock.guava.common.base.Strings;
 import org.forgerock.guava.common.collect.ImmutableList;
@@ -53,6 +50,7 @@ import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
 public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
     public static final String OUTCOME = "outcome";
+    private static final String BUNDLE = WebAuthnRegistrationNode.class.getName().replace(".", "/");
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
@@ -87,10 +85,15 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     public Action process(TreeContext context) throws NodeProcessException {
         String submitWrapper = getScriptAsString("client-script-submit.js");
 
-        String script = getScriptAsString("client-script.js");
+        String webAuthnRegistrationScript = getScriptAsString("client-script.js");
+        webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(positiveBytes));
+        webAuthnRegistrationScript = String.format(submitWrapper, webAuthnRegistrationScript);
 
-        script = String.format(script, Arrays.toString(positiveBytes));
-        script = String.format(submitWrapper, script);
+        ResourceBundle bundle = context.request.locales
+                .getBundleInPreferredLocale(BUNDLE, WebAuthnRegistrationNode.OutcomeProvider.class.getClassLoader());
+
+        String spinnerScript = getScriptAsString("spinner.js");
+        spinnerScript = String.format(spinnerScript, bundle.getString("waiting"));
 
         Optional<String> result = context.getCallback(HiddenValueCallback.class)
                 .map(HiddenValueCallback::getValue)
@@ -98,9 +101,11 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
         if (result.isPresent()) {
             return goTo(result.get().equals("true")).build();
         } else {
-            ScriptTextOutputCallback scriptAndSelfSubmitCallback = new ScriptTextOutputCallback(script);
+            ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
+            ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);
             HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(OUTCOME);
-            ImmutableList<Callback> callbacks = ImmutableList.of(scriptAndSelfSubmitCallback, hiddenValueCallback);
+            ImmutableList<Callback> callbacks = ImmutableList.of(webAuthNRegistrationCallback, spinnerCallback,
+                    hiddenValueCallback);
             return send(callbacks).build();
         }
     }

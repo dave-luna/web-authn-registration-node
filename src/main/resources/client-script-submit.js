@@ -12,5 +12,5 @@
 
     %1$s
 
-    setTimeout(submit, autoSubmitDelay);
+  //  setTimeout(submit, autoSubmitDelay);
 })(document.forms[0].elements['outcome']);
