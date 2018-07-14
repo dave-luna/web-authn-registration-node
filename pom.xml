@@ -44,4 +44,12 @@
         </repository>
     </repositories>
 
+    <dependencies>
+        <dependency>
+            <groupId>co.nstant.in</groupId>
+            <artifactId>cbor</artifactId>
+            <version>0.8</version>
+        </dependency>
+    </dependencies>
+
 </project>

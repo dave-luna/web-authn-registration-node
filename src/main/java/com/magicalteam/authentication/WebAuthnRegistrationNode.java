@@ -20,8 +20,6 @@ import static org.forgerock.openam.auth.node.api.Action.send;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.ResourceBundle;
@@ -29,9 +27,12 @@ import java.util.ResourceBundle;
 import javax.inject.Inject;
 import javax.security.auth.callback.Callback;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.IOUtils;
 import org.forgerock.guava.common.base.Strings;
 import org.forgerock.guava.common.collect.ImmutableList;
+import org.forgerock.json.JsonValue;
+import org.forgerock.openam.annotations.sm.Attribute;
 import org.forgerock.openam.auth.node.api.AbstractDecisionNode;
 import org.forgerock.openam.auth.node.api.Action;
 import org.forgerock.openam.auth.node.api.Node;
@@ -50,41 +51,53 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
     private static final String OUTCOME = "webAuthNOutcome";
     private static final String BUNDLE = WebAuthnRegistrationNode.class.getName().replace(".", "/");
+    private static final String WAN_CHALLENGE = "wan-challenge";
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
-    private static final int[] positiveBytes = new int[32];
+    private RegisterFlow registerFlow;
+    private ChallengeGenerator challengeGenerator;
 
     /**
      * Configuration for the node.
      */
     public interface Config {
 
+        @Attribute(order = 100)
+        default boolean isUserVerificationRequired() {
+            return false;
+        }
 
+        @Attribute(order = 200)
+        default AttestationPreference attestationPreference() {
+            return AttestationPreference.NONE;
+        }
     }
 
     @Inject
-    public WebAuthnRegistrationNode(@Assisted Config config) {
+    public WebAuthnRegistrationNode(@Assisted Config config, ChallengeGenerator challengeGenerator, RegisterFlow registerFlow) {
         this.config = config;
-
-        final byte[] challengeBytes = new byte[32];
-
-        try {
-            SecureRandom.getInstanceStrong().nextBytes(challengeBytes);
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        }
-
-        for (int i = 0; i < challengeBytes.length; i++) {
-            positiveBytes[i] = challengeBytes[i] & 0xff;
-        }
-
+        this.challengeGenerator = challengeGenerator;
+        this.registerFlow = registerFlow;
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
+        JsonValue sharedState = context.sharedState;
 
+        byte[] challengeBytes;
+        if(context.sharedState.get(WAN_CHALLENGE).isNull()) {
+            challengeBytes = challengeGenerator.getNewChallenge();
+            String base64String = Base64.encodeBase64String(challengeBytes);
+            sharedState = sharedState.copy().put(WAN_CHALLENGE, base64String);
+        } else {
+            String base64String = context.sharedState.get(WAN_CHALLENGE).asString();
+            challengeBytes = Base64.decodeBase64(base64String);
+        }
+
+        String rpId = "am.example.com"; // TODO config setting or pull from AM
         String webAuthnRegistrationScript = getScriptAsString("client-script.js");
-        webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(positiveBytes));
+        webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(challengeBytes), rpId,
+                config.attestationPreference().getValue());
 
         ResourceBundle bundle = context.request.locales
                 .getBundleInPreferredLocale(BUNDLE, WebAuthnRegistrationNode.OutcomeProvider.class.getClassLoader());
@@ -95,7 +108,12 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
         Optional<String> result = context.getCallback(HiddenValueCallback.class)
                 .map(HiddenValueCallback::getValue)
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
+
         if (result.isPresent()) {
+            String results = result.get();
+            String[] resultsArray = results.split("SPLITTER");
+            byte[] attestationData = getBytesFromNumbers(resultsArray[1]);
+            registerFlow.accept(resultsArray[0], attestationData, challengeBytes, rpId, config.isUserVerificationRequired());
             return goTo(result.get().equals("true")).build();
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
@@ -103,8 +121,22 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             HiddenValueCallback hiddenValueCallback = new HiddenValueCallback(OUTCOME, "false");
             ImmutableList<Callback> callbacks = ImmutableList.of(webAuthNRegistrationCallback, spinnerCallback,
                     hiddenValueCallback);
-            return send(callbacks).build();
+            return send(callbacks)
+                    .replaceSharedState(sharedState)
+                    .build();
         }
+    }
+
+    private byte[] getBytesFromNumbers(String data) {
+        byte[] results = new byte[data.length()];
+        int size = 0;
+        String[] numbersAsStrings = data.split(",");
+        for (String numberAsString : numbersAsStrings) {
+            int unsignedNumber = Integer.parseInt(numberAsString);
+            results[size] = (byte)(unsignedNumber);
+            size++;
+        }
+        return Arrays.copyOf(results, size);
     }
 
     // Reads a file stored under resources as a string
