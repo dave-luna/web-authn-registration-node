@@ -62,7 +62,7 @@ import org.slf4j.LoggerFactory;
  */
 public class WebAuthnRegistrationNodePlugin extends AbstractNodeAmPlugin {
 
-	static private String currentVersion = "1.0.0";
+	static private String currentVersion = "0.0.0";
 	
     /** 
      * Specify the Map of list of node classes that the plugin is providing. These will then be installed and
@@ -98,19 +98,6 @@ public class WebAuthnRegistrationNodePlugin extends AbstractNodeAmPlugin {
 	@Override
 	public void onStartup() throws PluginException {
 		super.onStartup();
-	}
-
-    /** 
-     * This method will be called when the version returned by {@link #getPluginVersion()} is higher than the
-     * version already installed. This method will be called before the {@link #onStartup()} method.
-     * 
-     * No need to implement this untils there are multiple versions of your auth node.
-     *
-     * @param fromVersion The old version of the plugin that has been installed.
-     */	
-	@Override
-	public void upgrade(String fromVersion) throws PluginException {
-		super.upgrade(fromVersion);
 	}
 
     /** 
