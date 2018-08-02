@@ -19,12 +19,31 @@ import static com.magicalteam.authentication.EncodingUtilities.base64UrlDecode;
 import static com.magicalteam.authentication.EncodingUtilities.getHash;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.security.InvalidKeyException;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.PublicKey;
+import java.security.Security;
+import java.security.Signature;
+import java.security.SignatureException;
+import java.security.interfaces.ECPublicKey;
+import java.security.spec.ECPoint;
+import java.security.spec.ECPublicKeySpec;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import javax.inject.Singleton;
 
 import org.apache.commons.lang.ArrayUtils;
+import org.bouncycastle.jce.ECNamedCurveTable;
+import org.bouncycastle.jce.ECPointUtil;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.jce.spec.ECNamedCurveParameterSpec;
+import org.bouncycastle.jce.spec.ECNamedCurveSpec;
 import org.forgerock.openam.utils.JsonValueBuilder;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,7 +55,12 @@ public class AuthenticationFlow {
 
     private AuthenticatorDecoder authenticatorDecoder = new AuthenticatorDecoder();
 
-    public boolean accept(String clientData, byte[] authenticatorData, byte[] signature, byte[] challengeBytes, Key keyData) {
+    public AuthenticationFlow() {
+        Security.addProvider(new BouncyCastleProvider());
+    }
+
+    public boolean accept(String clientData, byte[] authenticatorData, byte[] signature, byte[] challengeBytes,
+                          Key keyData, String registeredDomains) {
 
         Map<String,Object> map;
         try {
@@ -61,7 +85,7 @@ public class AuthenticationFlow {
 
         AuthData authData = authenticatorDecoder.decode(authenticatorData);
 
-        if (!Arrays.equals(getHash("am.example.com"), authData.rpIdHash)) {
+        if (!Arrays.equals(getHash(registeredDomains), authData.rpIdHash)) {
             return false;
         }
 
@@ -69,9 +93,35 @@ public class AuthenticationFlow {
         byte[] concatBytes = ArrayUtils.addAll(authenticatorData, cDataHash);
 
         // TODO MAGIC KEY STUFF HERE
-        keyData.
 
-        return true;
+        ByteBuffer buffer = ByteBuffer.allocate(keyData.xpos.length + keyData.ypos.length + 1);
+        buffer.put((byte) 0x04);
+        buffer.put(keyData.xpos);
+        buffer.put(keyData.ypos);
+        byte[] keyArray = buffer.array();
+
+        try {
+            PublicKey publicKey = getPublicKeyFromBytes(keyArray);
+
+            Signature ecdsaSign = Signature.getInstance("SHA256withECDSA", "BC");
+            ecdsaSign.initVerify(publicKey);
+            ecdsaSign.update(concatBytes);
+            return ecdsaSign.verify(signature);
+        } catch (NoSuchAlgorithmException | NoSuchProviderException | SignatureException | InvalidKeyException | InvalidKeySpecException e) {
+            e.printStackTrace();
+        }
+
+        return false;
+    }
+
+    private PublicKey getPublicKeyFromBytes(byte[] pubKey) throws NoSuchAlgorithmException, InvalidKeySpecException {
+        ECNamedCurveParameterSpec spec = ECNamedCurveTable.getParameterSpec("prime256v1");
+        KeyFactory kf = KeyFactory.getInstance("ECDSA", new BouncyCastleProvider());
+        ECNamedCurveSpec params = new ECNamedCurveSpec("prime256v1", spec.getCurve(), spec.getG(), spec.getN());
+        ECPoint point =  ECPointUtil.decodePoint(params.getCurve(), pubKey);
+        ECPublicKeySpec pubKeySpec = new ECPublicKeySpec(point, params);
+        ECPublicKey pk = (ECPublicKey) kf.generatePublic(pubKeySpec);
+        return pk;
     }
 
 }

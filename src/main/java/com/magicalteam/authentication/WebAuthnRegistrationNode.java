@@ -87,7 +87,6 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             return "am.example.com";
         }
 
-
         @Attribute(order = 20)
         default String keyStorageAttribute() {
             return "pushDeviceProfiles";

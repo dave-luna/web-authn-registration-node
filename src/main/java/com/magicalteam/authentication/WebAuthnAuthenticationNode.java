@@ -79,6 +79,11 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
      */
     public interface Config {
 
+        @Attribute(order = 10)
+        default String registeredDomains() {
+            return "openam.lunaforge.com";
+        }
+
         @Attribute(order = 20)
         default String keyStorageAttribute() {
             return "pushDeviceProfiles";
@@ -119,8 +124,8 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
             credentialId = getIdentity(context.sharedState.get(USERNAME).asString(),
                     context.sharedState.get(REALM).asString()).getAttribute(config.keyStorageAttribute())
                     .iterator().next();
-            credentialId = credentialId.substring(0, credentialId.indexOf("|"));
             keyAsJson = credentialId.substring(credentialId.indexOf("|") + 1);
+            credentialId = credentialId.substring(0, credentialId.indexOf("|"));
         } catch (IdRepoException | SSOException e) {
             e.printStackTrace();
         }
@@ -139,7 +144,7 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                 .map(HiddenValueCallback::getValue)
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
 
-        Key myKeyData;
+        Key myKeyData = null;
 
         try {
             myKeyData = JsonValueBuilder.getObjectMapper().readValue(keyAsJson, Key.class);
@@ -152,7 +157,8 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
             String[] resultsArray = results.split("SPLITTER");
             byte[] authenticatorData = getBytesFromNumbers(resultsArray[1]);
             byte[] signature = getBytesFromNumbers(resultsArray[2]);
-            if(authenticationFlow.accept(resultsArray[0], authenticatorData, signature, challengeBytes, myKeyData)) {
+            if(authenticationFlow.accept(resultsArray[0], authenticatorData, signature, challengeBytes, myKeyData,
+                    config.registeredDomains())) {
                 return goTo(true).build();
             } else {
                 return goTo(false).build();
