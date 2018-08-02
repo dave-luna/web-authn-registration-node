@@ -81,6 +81,11 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
      */
     public interface Config {
 
+        @Attribute(order = 10)
+        default String registeredDomains() {
+            return "openam.lunaforge.com";
+        }
+
         @Attribute(order = 100)
         default boolean isUserVerificationRequired() {
             return false;
@@ -90,6 +95,7 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
         default AttestationPreference attestationPreference() {
             return AttestationPreference.NONE;
         }
+
     }
 
     @Inject
@@ -114,7 +120,7 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             challengeBytes = Base64.decodeBase64(base64String);
         }
 
-        String rpId = "am.example.com"; // TODO config setting or pull from AM
+        String rpId = config.registeredDomains();
         String webAuthnRegistrationScript = getScriptAsString("client-script.js");
         webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(challengeBytes), rpId,
                 config.attestationPreference().getValue());
@@ -140,13 +146,14 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
                     AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
                             context.sharedState.get(REALM).asString());
                     Map<String, Set<String>> attrs = new HashMap<>();
-                    attrs.put("oath2faEnabled", Collections.singleton(acd.publicKey.toString()));
+                    attrs.put("pushDeviceProfiles", Collections.singleton(acd.publicKey.toString()));
                     user.setAttributes(attrs);
+                    user.store();
                 } catch (IdRepoException | SSOException e) {
-                    e.printStackTrace();
+                    return goTo(false).build();
                 }
             }
-            return goTo(result.get().equals("true")).build();
+            return goTo(true).build();
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);
