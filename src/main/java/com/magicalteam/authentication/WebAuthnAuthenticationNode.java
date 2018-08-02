@@ -69,6 +69,7 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
 
     private final ChallengeGenerator challengeGenerator;
     private final CoreWrapper coreWrapper;
+    private AuthenticationFlow authenticationFlow;
 
     /**
      * Configuration for the node.
@@ -87,11 +88,13 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
     }
 
     @Inject
+
     public WebAuthnAuthenticationNode(@Assisted Config config, ChallengeGenerator challengeGenerator,
-                                      CoreWrapper coreWrapper) {
+                                      CoreWrapper coreWrapper, AuthenticationFlow authenticationFlow) {
         this.config = config;
         this.challengeGenerator = challengeGenerator;
         this.coreWrapper = coreWrapper;
+        this.authenticationFlow = authenticationFlow;
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
@@ -132,7 +135,15 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
 
         if (result.isPresent()) {
-            return goTo(true).build();
+            String results = result.get();
+            String[] resultsArray = results.split("SPLITTER");
+            byte[] authenticatorData = getBytesFromNumbers(resultsArray[1]);
+            byte[] signature = getBytesFromNumbers(resultsArray[2]);
+            if(authenticationFlow.accept(resultsArray[0], authenticatorData, signature, challengeBytes)) {
+                return goTo(true).build();
+            } else {
+                return goTo(false).build();
+            }
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);

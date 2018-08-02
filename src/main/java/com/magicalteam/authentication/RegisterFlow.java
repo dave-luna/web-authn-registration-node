@@ -15,16 +15,14 @@
  */
 package com.magicalteam.authentication;
 
+import static com.magicalteam.authentication.EncodingUtilities.base64UrlDecode;
+import static com.magicalteam.authentication.EncodingUtilities.getHash;
+
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Map;
 
 import javax.inject.Singleton;
-
-import org.apache.commons.codec.binary.Base64;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicalteam.authentication.data.AttestationObject;
@@ -100,21 +98,5 @@ class RegisterFlow {
         }
 
         return attestationObject.authData.attestedCredentialData;
-    }
-
-    private static byte[] base64UrlDecode(String challenge) {
-        Base64 encoder = new Base64(true);
-        return encoder.decode(challenge);
-    }
-
-    private byte[] getHash(String value) {
-        byte[] hash = null;
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        }
-        return hash;
     }
 }

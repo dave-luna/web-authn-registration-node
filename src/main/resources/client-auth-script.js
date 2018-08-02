@@ -27,10 +27,11 @@ navigator.credentials.get({ "publicKey" : options })
         // console.log(JSON.stringify(newCredentialInfo.response));
         // console.log(newCredentialInfo.getClientExtensionResults());
         //
-        // var clientData = String.fromCharCode.apply(null, new Uint8Array(newCredentialInfo.response.clientDataJSON));
-        // var keyData = new Int8Array(newCredentialInfo.response.attestationObject).toString();
+        var clientData = String.fromCharCode.apply(null, new Uint8Array(assertion.response.clientDataJSON));
+        var authenticatorData = new Int8Array(assertion.response.authenticatorData).toString();
+        var signature = new Int8Array(assertion.response.signature).toString();
         //
-        document.getElementById('webAuthNOutcome').value = "Hello";
+        document.getElementById('webAuthNOutcome').value = clientData + "SPLITTER" + authenticatorData + "SPLITTER" + signature;
         document.getElementById("loginButton_0").click();
     }).catch(function (err) {
         console.error(err); // No acceptable authenticator or user refused consent. Handle appropriately.
