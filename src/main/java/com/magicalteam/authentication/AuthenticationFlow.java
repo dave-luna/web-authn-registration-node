@@ -25,21 +25,22 @@ import java.util.Map;
 import javax.inject.Singleton;
 
 import org.apache.commons.lang.ArrayUtils;
+import org.forgerock.openam.utils.JsonValueBuilder;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicalteam.authentication.data.AuthData;
+import com.magicalteam.authentication.data.Key;
 
 @Singleton
 public class AuthenticationFlow {
 
-    private ObjectMapper mapper = new ObjectMapper();
     private AuthenticatorDecoder authenticatorDecoder = new AuthenticatorDecoder();
 
-    public boolean accept(String clientData, byte[] authenticatorData, byte[] signature, byte[] challengeBytes) {
+    public boolean accept(String clientData, byte[] authenticatorData, byte[] signature, byte[] challengeBytes, Key keyData) {
 
         Map<String,Object> map;
         try {
-            map = mapper.readValue(clientData, Map.class);
+            map = JsonValueBuilder.getObjectMapper().readValue(clientData, Map.class);
         } catch (IOException e) {
             e.printStackTrace();
             return false;
@@ -66,6 +67,9 @@ public class AuthenticationFlow {
 
         byte[] cDataHash = getHash(clientData);
         byte[] concatBytes = ArrayUtils.addAll(authenticatorData, cDataHash);
+
+        // TODO MAGIC KEY STUFF HERE
+        keyData.
 
         return true;
     }

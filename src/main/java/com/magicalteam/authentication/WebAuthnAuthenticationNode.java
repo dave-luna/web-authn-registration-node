@@ -23,6 +23,7 @@ import static org.forgerock.openam.auth.node.api.SharedStateConstants.USERNAME;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Optional;
 import java.util.ResourceBundle;
 
@@ -42,11 +43,13 @@ import org.forgerock.openam.auth.node.api.NodeProcessException;
 import org.forgerock.openam.auth.node.api.TreeContext;
 import org.forgerock.openam.core.CoreWrapper;
 import org.forgerock.openam.utils.CrestQuery;
+import org.forgerock.openam.utils.JsonValueBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.inject.assistedinject.Assisted;
 import com.iplanet.sso.SSOException;
+import com.magicalteam.authentication.data.Key;
 import com.sun.identity.authentication.callbacks.HiddenValueCallback;
 import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
 import com.sun.identity.idm.AMIdentity;
@@ -111,11 +114,13 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
         }
 
         String credentialId = null;
+        String keyAsJson = null;
         try {
             credentialId = getIdentity(context.sharedState.get(USERNAME).asString(),
                     context.sharedState.get(REALM).asString()).getAttribute(config.keyStorageAttribute())
                     .iterator().next();
             credentialId = credentialId.substring(0, credentialId.indexOf("|"));
+            keyAsJson = credentialId.substring(credentialId.indexOf("|") + 1);
         } catch (IdRepoException | SSOException e) {
             e.printStackTrace();
         }
@@ -134,12 +139,20 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                 .map(HiddenValueCallback::getValue)
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
 
+        Key myKeyData;
+
+        try {
+            myKeyData = JsonValueBuilder.getObjectMapper().readValue(keyAsJson, Key.class);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         if (result.isPresent()) {
             String results = result.get();
             String[] resultsArray = results.split("SPLITTER");
             byte[] authenticatorData = getBytesFromNumbers(resultsArray[1]);
             byte[] signature = getBytesFromNumbers(resultsArray[2]);
-            if(authenticationFlow.accept(resultsArray[0], authenticatorData, signature, challengeBytes)) {
+            if(authenticationFlow.accept(resultsArray[0], authenticatorData, signature, challengeBytes, myKeyData)) {
                 return goTo(true).build();
             } else {
                 return goTo(false).build();
