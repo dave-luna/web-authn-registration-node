@@ -16,6 +16,7 @@
 
 package com.magicalteam.authentication;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 
@@ -72,8 +73,10 @@ public class WebAuthnRegistrationNodePlugin extends AbstractNodeAmPlugin {
      */
 	@Override
 	protected Map<String, Iterable<? extends Class<? extends Node>>> getNodesByVersion() {
-		return Collections.singletonMap(WebAuthnRegistrationNodePlugin.currentVersion, 
-				Collections.singletonList(WebAuthnRegistrationNode.class));
+		return Collections.singletonMap(WebAuthnRegistrationNodePlugin.currentVersion,
+				Arrays.asList(
+						WebAuthnRegistrationNode.class,
+						WebAuthnAuthenticationNode.class));
 	}
 
     /** 

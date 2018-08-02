@@ -46,11 +46,12 @@ navigator.credentials.create({ publicKey })
         console.log(String.fromCharCode.apply(null, new Uint8Array(newCredentialInfo.response.clientDataJSON)));
         console.log(JSON.stringify(newCredentialInfo.response));
         console.log(newCredentialInfo.getClientExtensionResults());
-        
+
+        var rawId = new Int8Array(newCredentialInfo.rawId).toString();
         var clientData = String.fromCharCode.apply(null, new Uint8Array(newCredentialInfo.response.clientDataJSON));
         var keyData = new Int8Array(newCredentialInfo.response.attestationObject).toString();
 
-        document.getElementById('webAuthNOutcome').value = clientData + "SPLITTER" + keyData;
+        document.getElementById('webAuthNOutcome').value = clientData + "SPLITTER" + keyData + "SPLITTER" + rawId;
         document.getElementById("loginButton_0").click();
     }).catch(function (err) {
         console.error(err); // No acceptable authenticator or user refused consent. Handle appropriately.
