@@ -148,13 +148,14 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             byte[] attestationData = getBytesFromNumbers(resultsArray[1]);
             AttestedCredentialData acd = registerFlow.accept(resultsArray[0], attestationData, challengeBytes, rpId,
                     config.isUserVerificationRequired());
+            String credentialId = resultsArray[2];
             if (acd != null) {
                 try {
                     AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
                             context.sharedState.get(REALM).asString());
                     Map<String, Set<String>> attrs = new HashMap<>();
                     attrs.put(config.keyStorageAttribute(),
-                            Collections.singleton(new String(acd.credentialId) + "|" + acd.publicKey.toString()));
+                            Collections.singleton(credentialId + "|" + acd.publicKey.toString()));
                     user.setAttributes(attrs);
                     user.store();
                 } catch (IdRepoException | SSOException e) {

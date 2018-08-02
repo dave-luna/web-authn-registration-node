@@ -17,6 +17,8 @@
 package com.magicalteam.authentication;
 
 import static org.forgerock.openam.auth.node.api.Action.send;
+import static org.forgerock.openam.auth.node.api.SharedStateConstants.REALM;
+import static org.forgerock.openam.auth.node.api.SharedStateConstants.USERNAME;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -38,12 +40,21 @@ import org.forgerock.openam.auth.node.api.Action;
 import org.forgerock.openam.auth.node.api.Node;
 import org.forgerock.openam.auth.node.api.NodeProcessException;
 import org.forgerock.openam.auth.node.api.TreeContext;
+import org.forgerock.openam.core.CoreWrapper;
+import org.forgerock.openam.utils.CrestQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.inject.assistedinject.Assisted;
+import com.iplanet.sso.SSOException;
 import com.sun.identity.authentication.callbacks.HiddenValueCallback;
 import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
+import com.sun.identity.idm.AMIdentity;
+import com.sun.identity.idm.AMIdentityRepository;
+import com.sun.identity.idm.IdRepoException;
+import com.sun.identity.idm.IdSearchControl;
+import com.sun.identity.idm.IdSearchResults;
+import com.sun.identity.idm.IdType;
 
 @Node.Metadata(outcomeProvider = AbstractDecisionNode.OutcomeProvider.class,
         configClass = WebAuthnAuthenticationNode.Config.class)
@@ -56,12 +67,19 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
-    private ChallengeGenerator challengeGenerator;
+    private final ChallengeGenerator challengeGenerator;
+    private final CoreWrapper coreWrapper;
 
     /**
      * Configuration for the node.
      */
     public interface Config {
+
+        @Attribute(order = 20)
+        default String keyStorageAttribute() {
+            return "pushDeviceProfiles";
+        }
+
         @Attribute(order = 100)
         default boolean isUserVerificationRequired() {
             return false;
@@ -69,9 +87,11 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
     }
 
     @Inject
-    public WebAuthnAuthenticationNode(@Assisted Config config, ChallengeGenerator challengeGenerator) {
+    public WebAuthnAuthenticationNode(@Assisted Config config, ChallengeGenerator challengeGenerator,
+                                      CoreWrapper coreWrapper) {
         this.config = config;
         this.challengeGenerator = challengeGenerator;
+        this.coreWrapper = coreWrapper;
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
@@ -87,10 +107,19 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
             challengeBytes = Base64.decodeBase64(base64String);
         }
 
-        String credentialId = context.sharedState.get(CREDENTIAL_ID).asString();
+        String credentialId = null;
+        try {
+            credentialId = getIdentity(context.sharedState.get(USERNAME).asString(),
+                    context.sharedState.get(REALM).asString()).getAttribute(config.keyStorageAttribute())
+                    .iterator().next();
+            credentialId = credentialId.substring(0, credentialId.indexOf("|"));
+        } catch (IdRepoException | SSOException e) {
+            e.printStackTrace();
+        }
 
         String webAuthnRegistrationScript = getScriptAsString("client-auth-script.js");
-        webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(challengeBytes), Arrays.toString(getBytesFromNumbers(credentialId)));
+        webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(challengeBytes),
+                Arrays.toString(Base64.decodeBase64(credentialId)));
 
         ResourceBundle bundle = context.request.locales
                 .getBundleInPreferredLocale(BUNDLE, OutcomeProvider.class.getClassLoader());
@@ -103,7 +132,7 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
 
         if (result.isPresent()) {
-            return goTo(result.get().equals("true")).build();
+            return goTo(true).build();
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);
@@ -115,6 +144,18 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                     .build();
         }
     }
+
+    private AMIdentity getIdentity(String username, String realm) throws IdRepoException, SSOException {
+        AMIdentityRepository idrepo = coreWrapper.getAMIdentityRepository(
+                coreWrapper.convertRealmDnToRealmPath(realm));
+        IdSearchControl idSearchControl = new IdSearchControl();
+        idSearchControl.setAllReturnAttributes(true);
+
+        IdSearchResults idSearchResults = idrepo.searchIdentities(IdType.USER,
+                new CrestQuery(username), idSearchControl);
+        return idSearchResults.getSearchResults().iterator().next();
+    }
+
 
     private byte[] getBytesFromNumbers(String data) {
         byte[] results = new byte[data.length()];

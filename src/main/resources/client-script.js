@@ -47,7 +47,7 @@ navigator.credentials.create({ publicKey })
         console.log(JSON.stringify(newCredentialInfo.response));
         console.log(newCredentialInfo.getClientExtensionResults());
 
-        var rawId = new Int8Array(newCredentialInfo.rawId).toString();
+        var rawId = newCredentialInfo.id;
         var clientData = String.fromCharCode.apply(null, new Uint8Array(newCredentialInfo.response.clientDataJSON));
         var keyData = new Int8Array(newCredentialInfo.response.attestationObject).toString();
 
