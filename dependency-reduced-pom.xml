@@ -80,7 +80,7 @@
     <dependency>
       <groupId>org.forgerock.commons</groupId>
       <artifactId>forgerock-test-utils</artifactId>
-      <version>23.0.0</version>
+      <version>23.0.1</version>
       <scope>test</scope>
     </dependency>
     <dependency>
