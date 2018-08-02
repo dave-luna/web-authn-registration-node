@@ -86,6 +86,12 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             return "openam.lunaforge.com";
         }
 
+
+        @Attribute(order = 20)
+        default String keyStorageAttribute() {
+            return "pushDeviceProfiles";
+        }
+
         @Attribute(order = 100)
         default boolean isUserVerificationRequired() {
             return false;
@@ -146,7 +152,8 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
                     AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
                             context.sharedState.get(REALM).asString());
                     Map<String, Set<String>> attrs = new HashMap<>();
-                    attrs.put("pushDeviceProfiles", Collections.singleton(acd.publicKey.toString()));
+                    attrs.put(config.keyStorageAttribute(),
+                            Collections.singleton(new String(acd.credentialId) + "|" + acd.publicKey.toString()));
                     user.setAttributes(attrs);
                     user.store();
                 } catch (IdRepoException | SSOException e) {
