@@ -23,6 +23,7 @@ import static org.forgerock.openam.auth.node.api.SharedStateConstants.USERNAME;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Optional;
 import java.util.ResourceBundle;
 
@@ -42,11 +43,13 @@ import org.forgerock.openam.auth.node.api.NodeProcessException;
 import org.forgerock.openam.auth.node.api.TreeContext;
 import org.forgerock.openam.core.CoreWrapper;
 import org.forgerock.openam.utils.CrestQuery;
+import org.forgerock.openam.utils.JsonValueBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.inject.assistedinject.Assisted;
 import com.iplanet.sso.SSOException;
+import com.magicalteam.authentication.data.Key;
 import com.sun.identity.authentication.callbacks.HiddenValueCallback;
 import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
 import com.sun.identity.idm.AMIdentity;
@@ -69,11 +72,17 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
 
     private final ChallengeGenerator challengeGenerator;
     private final CoreWrapper coreWrapper;
+    private AuthenticationFlow authenticationFlow;
 
     /**
      * Configuration for the node.
      */
     public interface Config {
+
+        @Attribute(order = 10)
+        default String registeredDomains() {
+            return "openam.lunaforge.com";
+        }
 
         @Attribute(order = 20)
         default String keyStorageAttribute() {
@@ -87,11 +96,13 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
     }
 
     @Inject
+
     public WebAuthnAuthenticationNode(@Assisted Config config, ChallengeGenerator challengeGenerator,
-                                      CoreWrapper coreWrapper) {
+                                      CoreWrapper coreWrapper, AuthenticationFlow authenticationFlow) {
         this.config = config;
         this.challengeGenerator = challengeGenerator;
         this.coreWrapper = coreWrapper;
+        this.authenticationFlow = authenticationFlow;
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
@@ -108,10 +119,12 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
         }
 
         String credentialId = null;
+        String keyAsJson = null;
         try {
             credentialId = getIdentity(context.sharedState.get(USERNAME).asString(),
                     context.sharedState.get(REALM).asString()).getAttribute(config.keyStorageAttribute())
                     .iterator().next();
+            keyAsJson = credentialId.substring(credentialId.indexOf("|") + 1);
             credentialId = credentialId.substring(0, credentialId.indexOf("|"));
         } catch (IdRepoException | SSOException e) {
             e.printStackTrace();
@@ -131,8 +144,25 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                 .map(HiddenValueCallback::getValue)
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
 
+        Key myKeyData = null;
+
+        try {
+            myKeyData = JsonValueBuilder.getObjectMapper().readValue(keyAsJson, Key.class);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         if (result.isPresent()) {
-            return goTo(true).build();
+            String results = result.get();
+            String[] resultsArray = results.split("SPLITTER");
+            byte[] authenticatorData = getBytesFromNumbers(resultsArray[1]);
+            byte[] signature = getBytesFromNumbers(resultsArray[2]);
+            if(authenticationFlow.accept(resultsArray[0], authenticatorData, signature, challengeBytes, myKeyData,
+                    config.registeredDomains())) {
+                return goTo(true).build();
+            } else {
+                return goTo(false).build();
+            }
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);

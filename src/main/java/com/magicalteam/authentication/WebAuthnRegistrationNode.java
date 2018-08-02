@@ -84,9 +84,8 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
         @Attribute(order = 10)
         default String registeredDomains() {
-            return "openam.lunaforge.com";
+            return "am.example.com";
         }
-
 
         @Attribute(order = 20)
         default String keyStorageAttribute() {
@@ -161,9 +160,12 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
                 } catch (IdRepoException | SSOException e) {
                     return goTo(false).build();
                 }
+                sharedState = sharedState.copy().put(CREDENTIAL_ID, resultsArray[2]);
+                return goTo(true).replaceSharedState(sharedState).build();
+            } else {
+                logger.error("no attestation data was returned after registration flow");
+                return goTo(false).build();
             }
-            sharedState = sharedState.copy().put(CREDENTIAL_ID, resultsArray[2]);
-            return goTo(true).replaceSharedState(sharedState).build();
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);

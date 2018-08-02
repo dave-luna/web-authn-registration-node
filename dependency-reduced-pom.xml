@@ -48,6 +48,12 @@
   </repositories>
   <dependencies>
     <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk15on</artifactId>
+      <version>1.48</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
       <groupId>org.forgerock.am</groupId>
       <artifactId>auth-node-api</artifactId>
       <version>6.0.0</version>
