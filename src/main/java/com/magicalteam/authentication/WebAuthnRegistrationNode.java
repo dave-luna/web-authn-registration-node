@@ -17,12 +17,18 @@
 package com.magicalteam.authentication;
 
 import static org.forgerock.openam.auth.node.api.Action.send;
+import static org.forgerock.openam.auth.node.api.SharedStateConstants.REALM;
+import static org.forgerock.openam.auth.node.api.SharedStateConstants.USERNAME;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.Set;
 
 import javax.inject.Inject;
 import javax.security.auth.callback.Callback;
@@ -38,12 +44,22 @@ import org.forgerock.openam.auth.node.api.Action;
 import org.forgerock.openam.auth.node.api.Node;
 import org.forgerock.openam.auth.node.api.NodeProcessException;
 import org.forgerock.openam.auth.node.api.TreeContext;
+import org.forgerock.openam.core.CoreWrapper;
+import org.forgerock.openam.utils.CrestQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.inject.assistedinject.Assisted;
+import com.iplanet.sso.SSOException;
+import com.magicalteam.authentication.data.AttestedCredentialData;
 import com.sun.identity.authentication.callbacks.HiddenValueCallback;
 import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
+import com.sun.identity.idm.AMIdentity;
+import com.sun.identity.idm.AMIdentityRepository;
+import com.sun.identity.idm.IdRepoException;
+import com.sun.identity.idm.IdSearchControl;
+import com.sun.identity.idm.IdSearchResults;
+import com.sun.identity.idm.IdType;
 
 @Node.Metadata(outcomeProvider = AbstractDecisionNode.OutcomeProvider.class,
         configClass = WebAuthnRegistrationNode.Config.class)
@@ -58,10 +74,17 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
     private RegisterFlow registerFlow;
     private ChallengeGenerator challengeGenerator;
 
+    private final CoreWrapper coreWrapper;
+
     /**
      * Configuration for the node.
      */
     public interface Config {
+
+        @Attribute(order = 10)
+        default String registeredDomains() {
+            return "openam.lunaforge.com";
+        }
 
         @Attribute(order = 100)
         default boolean isUserVerificationRequired() {
@@ -72,13 +95,16 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
         default AttestationPreference attestationPreference() {
             return AttestationPreference.NONE;
         }
+
     }
 
     @Inject
-    public WebAuthnRegistrationNode(@Assisted Config config, ChallengeGenerator challengeGenerator, RegisterFlow registerFlow) {
+    public WebAuthnRegistrationNode(@Assisted Config config, ChallengeGenerator challengeGenerator, RegisterFlow registerFlow,
+                                    CoreWrapper coreWrapper) {
         this.config = config;
         this.challengeGenerator = challengeGenerator;
         this.registerFlow = registerFlow;
+        this.coreWrapper = coreWrapper;
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
@@ -94,7 +120,7 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             challengeBytes = Base64.decodeBase64(base64String);
         }
 
-        String rpId = "am.example.com"; // TODO config setting or pull from AM
+        String rpId = config.registeredDomains();
         String webAuthnRegistrationScript = getScriptAsString("client-script.js");
         webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(challengeBytes), rpId,
                 config.attestationPreference().getValue());
@@ -113,8 +139,21 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
             String results = result.get();
             String[] resultsArray = results.split("SPLITTER");
             byte[] attestationData = getBytesFromNumbers(resultsArray[1]);
-            registerFlow.accept(resultsArray[0], attestationData, challengeBytes, rpId, config.isUserVerificationRequired());
-            return goTo(result.get().equals("true")).build();
+            AttestedCredentialData acd = registerFlow.accept(resultsArray[0], attestationData, challengeBytes, rpId,
+                    config.isUserVerificationRequired());
+            if (acd != null) {
+                try {
+                    AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
+                            context.sharedState.get(REALM).asString());
+                    Map<String, Set<String>> attrs = new HashMap<>();
+                    attrs.put("pushDeviceProfiles", Collections.singleton(acd.publicKey.toString()));
+                    user.setAttributes(attrs);
+                    user.store();
+                } catch (IdRepoException | SSOException e) {
+                    return goTo(false).build();
+                }
+            }
+            return goTo(true).build();
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);
@@ -125,6 +164,17 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
                     .replaceSharedState(sharedState)
                     .build();
         }
+    }
+
+    private AMIdentity getIdentity(String username, String realm) throws IdRepoException, SSOException {
+        AMIdentityRepository idrepo = coreWrapper.getAMIdentityRepository(
+                coreWrapper.convertRealmDnToRealmPath(realm));
+        IdSearchControl idSearchControl = new IdSearchControl();
+        idSearchControl.setAllReturnAttributes(true);
+
+        IdSearchResults idSearchResults = idrepo.searchIdentities(IdType.USER,
+                new CrestQuery(username), idSearchControl);
+        return idSearchResults.getSearchResults().iterator().next();
     }
 
     private byte[] getBytesFromNumbers(String data) {

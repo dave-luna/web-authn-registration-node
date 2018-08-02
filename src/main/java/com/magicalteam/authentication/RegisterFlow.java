@@ -28,6 +28,7 @@ import org.apache.commons.codec.binary.Base64;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicalteam.authentication.data.AttestationObject;
+import com.magicalteam.authentication.data.AttestedCredentialData;
 
 /**
  * An implementation of https://www.w3.org/TR/webauthn/#registering-a-new-credential
@@ -39,26 +40,26 @@ class RegisterFlow {
     private ObjectMapper mapper = new ObjectMapper();
     private AttestationDecoder attestationDecoder = new AttestationDecoder();
 
-    boolean accept(String clientData, byte[] attestationData, byte[] challengeBytes, String rpId,
-                   boolean isUserVerificationRequired) {
+    AttestedCredentialData accept(String clientData, byte[] attestationData, byte[] challengeBytes, String rpId,
+                                  boolean isUserVerificationRequired) {
         Map<String,Object> map;
         try {
             map = mapper.readValue(clientData, Map.class);
         } catch (IOException e) {
             e.printStackTrace();
-            return false;
+            return null;
         }
 
         if (!map.containsKey("type")) {
-            return false;
+            return null;
         }
         if (!map.get("type").equals("webauthn.create")) {
-            return false;
+            return null;
         }
 
         byte[] decodeBytes = base64UrlDecode(map.get("challenge").toString());
         if (!Arrays.equals(challengeBytes, decodeBytes)) {
-            return false;
+            return null;
         }
 
         // TODO verify origin
@@ -70,16 +71,16 @@ class RegisterFlow {
         AttestationObject attestationObject = attestationDecoder.decode(attestationData);
 
         if (!Arrays.equals(getHash(rpId), attestationObject.authData.rpIdHash)) {
-            return false;
+            return null;
         }
 
         if (isUserVerificationRequired) {
             if (!attestationObject.authData.attestationFlags.isUserVerified()) {
-                return false;
+                return null;
             }
         } else {
             if (!attestationObject.authData.attestationFlags.isUserPresent()) {
-                return false;
+                return null;
             }
         }
 
@@ -92,13 +93,13 @@ class RegisterFlow {
         }
         if (attestationObject.fmt.equals("fido-u2f")) {
             if (attestationObject.authData.attestedCredentialData.publicKey.alg != -7) {
-                return false;
+                return null;
             }
             // further, detailed verification required here
             // see https://www.w3.org/TR/webauthn/#fido-u2f-attestation
         }
 
-        return true;
+        return attestationObject.authData.attestedCredentialData;
     }
 
     private static byte[] base64UrlDecode(String challenge) {
