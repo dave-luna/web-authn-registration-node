@@ -13,10 +13,10 @@
  *
  * Copyright 2018 ForgeRock AS.
  */
-package com.magicalteam.authentication;
+package com.magicalteam.authentication.flows;
 
-import static com.magicalteam.authentication.EncodingUtilities.base64UrlDecode;
-import static com.magicalteam.authentication.EncodingUtilities.getHash;
+import static com.magicalteam.authentication.flows.EncodingUtilities.base64UrlDecode;
+import static com.magicalteam.authentication.flows.EncodingUtilities.getHash;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -34,7 +34,6 @@ import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.stream.Stream;
 
 import javax.inject.Singleton;
 
@@ -46,14 +45,11 @@ import org.bouncycastle.jce.spec.ECNamedCurveParameterSpec;
 import org.bouncycastle.jce.spec.ECNamedCurveSpec;
 import org.forgerock.openam.utils.JsonValueBuilder;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicalteam.authentication.data.AuthData;
 import com.magicalteam.authentication.data.Key;
 
 @Singleton
 public class AuthenticationFlow {
-
-    private AuthenticatorDecoder authenticatorDecoder = new AuthenticatorDecoder();
 
     public AuthenticationFlow() {
         Security.addProvider(new BouncyCastleProvider());
@@ -74,8 +70,8 @@ public class AuthenticationFlow {
             return false;
         }
 
-        byte[] decodeBytes = base64UrlDecode(map.get("challenge").toString());
-        if (!Arrays.equals(challengeBytes, decodeBytes)) {
+        byte[] decodedBytes = base64UrlDecode(map.get("challenge").toString());
+        if (!Arrays.equals(challengeBytes, decodedBytes)) {
             return false;
         }
 
@@ -83,7 +79,12 @@ public class AuthenticationFlow {
 
         // TODO verify status
 
-        AuthData authData = authenticatorDecoder.decode(authenticatorData);
+        AuthData authData;
+        try {
+            authData = AuthDataDecoder.decode(authenticatorData);
+        } catch (DecodingException e) {
+            return false;
+        }
 
         if (!Arrays.equals(getHash(registeredDomains), authData.rpIdHash)) {
             return false;

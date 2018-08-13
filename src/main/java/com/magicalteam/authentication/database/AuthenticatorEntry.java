@@ -13,18 +13,30 @@
  *
  * Copyright 2018 ForgeRock AS.
  */
-package com.magicalteam.authentication.data;
+package com.magicalteam.authentication.database;
 
-import java.security.cert.X509Certificate;
-import java.util.List;
+import com.magicalteam.authentication.data.Key;
 
 /**
- * Represents https://www.w3.org/TR/webauthn/#attestation-statement
- * Specifically the FIDO u2f format https://www.w3.org/TR/webauthn/#fido-u2f-attestation
+ * Represents and association between a credential ID and a public key.
  */
-public class FidoAttestationStatement {
-    // TODO the certs should be an array !
-    public List<X509Certificate> attestnCerts;
-    public byte[] caCert;
-    public byte[] sig;
+public class AuthenticatorEntry {
+    public String credentialId;
+    public Key key;
+
+    /**
+     * Creates a CredentialKeyObject.
+     * @param credentialId the credential ID.
+     * @param key the public key.
+     */
+    public AuthenticatorEntry(String credentialId, Key key) {
+        this.credentialId = credentialId;
+        this.key = key;
+    }
+
+    /**
+     * Default constructor, required by object mapper for serialization.
+     */
+    public AuthenticatorEntry() {
+    }
 }

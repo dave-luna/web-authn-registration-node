@@ -15,10 +15,6 @@
  */
 package com.magicalteam.authentication.data;
 
-import org.forgerock.openam.utils.JsonValueBuilder;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-
 /**
  * Represents https://www.w3.org/TR/webauthn/#credential-public-key
  */
@@ -28,15 +24,4 @@ public class Key {
     public int curve;
     public byte[] xpos;
     public byte[] ypos;
-
-    @Override
-    public String toString() {
-        try {
-            return JsonValueBuilder.getObjectMapper().writeValueAsString(this);
-        } catch (JsonProcessingException e) {
-            e.printStackTrace();
-        }
-
-        return null;
-    }
 }

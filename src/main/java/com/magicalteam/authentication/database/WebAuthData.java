@@ -13,18 +13,23 @@
  *
  * Copyright 2018 ForgeRock AS.
  */
-package com.magicalteam.authentication.data;
+package com.magicalteam.authentication.database;
 
-import java.security.cert.X509Certificate;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * Represents https://www.w3.org/TR/webauthn/#attestation-statement
- * Specifically the FIDO u2f format https://www.w3.org/TR/webauthn/#fido-u2f-attestation
+ * Represents a map of registered authenticators.
  */
-public class FidoAttestationStatement {
-    // TODO the certs should be an array !
-    public List<X509Certificate> attestnCerts;
-    public byte[] caCert;
-    public byte[] sig;
+public class WebAuthData {
+
+    private Map<String, AuthenticatorEntry> authenticators;
+
+    public WebAuthData() {
+        authenticators = new HashMap<>();
+    }
+
+    public Map<String, AuthenticatorEntry> getAuthenticators() {
+        return authenticators;
+    }
 }
