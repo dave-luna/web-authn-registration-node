@@ -13,10 +13,10 @@
  *
  * Copyright 2018 ForgeRock AS.
  */
-package com.magicalteam.authentication;
+package com.magicalteam.authentication.flows;
 
-import static com.magicalteam.authentication.EncodingUtilities.base64UrlDecode;
-import static com.magicalteam.authentication.EncodingUtilities.getHash;
+import static com.magicalteam.authentication.flows.EncodingUtilities.base64UrlDecode;
+import static com.magicalteam.authentication.flows.EncodingUtilities.getHash;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -26,20 +26,19 @@ import javax.inject.Singleton;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.magicalteam.authentication.data.AttestationObject;
-import com.magicalteam.authentication.data.AttestedCredentialData;
 
 /**
  * An implementation of https://www.w3.org/TR/webauthn/#registering-a-new-credential
  * Essentailly decodes the data and performs verification.
  */
 @Singleton
-class RegisterFlow {
+public class RegisterFlow {
 
     private ObjectMapper mapper = new ObjectMapper();
     private AttestationDecoder attestationDecoder = new AttestationDecoder();
 
-    AttestedCredentialData accept(String clientData, byte[] attestationData, byte[] challengeBytes, String rpId,
-                                  boolean isUserVerificationRequired) {
+    public AttestationObject accept(String clientData, byte[] attestationData, byte[] challengeBytes, String rpId,
+                                    boolean isUserVerificationRequired) {
         Map<String,Object> map;
         try {
             map = mapper.readValue(clientData, Map.class);
@@ -66,7 +65,12 @@ class RegisterFlow {
 
         // TODO compute hash SHA-256 of clientData
 
-        AttestationObject attestationObject = attestationDecoder.decode(attestationData);
+        AttestationObject attestationObject;
+        try {
+            attestationObject = attestationDecoder.decode(attestationData);
+        } catch (DecodingException e) {
+            return null;
+        }
 
         if (!Arrays.equals(getHash(rpId), attestationObject.authData.rpIdHash)) {
             return null;
@@ -97,6 +101,6 @@ class RegisterFlow {
             // see https://www.w3.org/TR/webauthn/#fido-u2f-attestation
         }
 
-        return attestationObject.authData.attestedCredentialData;
+        return attestationObject;
     }
 }

@@ -13,7 +13,7 @@
  *
  * Copyright 2018 ForgeRock AS.
  */
-package com.magicalteam.authentication;
+package com.magicalteam.authentication.flows;
 
 import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
@@ -21,10 +21,14 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.magicalteam.authentication.data.AttestationFlags;
 import com.magicalteam.authentication.data.AttestedCredentialData;
 import com.magicalteam.authentication.data.AuthData;
 import com.magicalteam.authentication.data.Key;
+import com.magicalteam.authentication.flows.DecodingException;
 
 import co.nstant.in.cbor.CborDecoder;
 import co.nstant.in.cbor.CborException;
@@ -36,15 +40,16 @@ import co.nstant.in.cbor.model.Number;
 /**
  * https://www.w3.org/TR/webauthn/#authenticator-data
  */
-class AuthenticatorDecoder {
+class AuthDataDecoder {
 
-    AuthData decode(byte[] authenticatorData) {
+    private static final Logger logger = LoggerFactory.getLogger("amAuth");
 
-        AuthData authData = decodeAuthData(authenticatorData);
-        return authData;
-    }
-
-    static AuthData decodeAuthData(byte[] authDataAsBytes) {
+    /**
+     * Decodes the Auth Data.
+     * @param authDataAsBytes the auth data as bytes.
+     * @return AuthData object.
+     */
+    static AuthData decode(byte[] authDataAsBytes) throws DecodingException {
         AuthData authData = new AuthData();
         authData.rpIdHash = Arrays.copyOfRange(authDataAsBytes, 0, 32);
 
@@ -56,19 +61,18 @@ class AuthenticatorDecoder {
         authData.signCount = wrapped.getInt();
 
         if (authDataAsBytes.length > 37) {
-            authData.attestedCredentialData = getAuthData(authDataAsBytes);
+            authData.attestedCredentialData = getAttestedCredentialData(authDataAsBytes);
         }
 
         return authData;
     }
 
-    private static AttestedCredentialData getAuthData(byte[] authData) {
+    private static AttestedCredentialData getAttestedCredentialData(byte[] authData) throws DecodingException {
 
         AttestedCredentialData attestedCredentialData = new AttestedCredentialData();
 
         attestedCredentialData.aaguid = Arrays.copyOfRange(authData, 37, 53);
 
-        String foo;
         byte[] credentialIdLength = Arrays.copyOfRange(authData, 53, 55);
         ByteBuffer wrapped = ByteBuffer.wrap(credentialIdLength);
         int credentialIdLengthValue = wrapped.getShort();
@@ -82,11 +86,12 @@ class AuthenticatorDecoder {
 
         byte[] publicKeyBytes = Arrays.copyOfRange(authData, index, authData.length);
 
-        List<DataItem> dataItems = null;
+        List<DataItem> dataItems;
         try {
             dataItems = new CborDecoder(new ByteArrayInputStream(publicKeyBytes)).decode();
         } catch (CborException e) {
-            e.printStackTrace();
+            logger.error("failed to decode data in CBOR format", e);
+            throw new DecodingException();
         }
         Key publicKey = new Key();
         Map attObjMap = (Map) dataItems.get(0);
@@ -118,6 +123,4 @@ class AuthenticatorDecoder {
         attestedCredentialData.publicKey = publicKey;
         return attestedCredentialData;
     }
-
-
 }

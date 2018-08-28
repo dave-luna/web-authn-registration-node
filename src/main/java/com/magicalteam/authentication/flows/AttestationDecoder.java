@@ -13,26 +13,24 @@
  *
  * Copyright 2018 ForgeRock AS.
  */
-package com.magicalteam.authentication;
+package com.magicalteam.authentication.flows;
 
 import java.io.ByteArrayInputStream;
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 
-import com.magicalteam.authentication.data.AttestationFlags;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.magicalteam.authentication.data.AttestationObject;
-import com.magicalteam.authentication.data.AttestedCredentialData;
-import com.magicalteam.authentication.data.AuthData;
 import com.magicalteam.authentication.data.FidoAttestationStatement;
-import com.magicalteam.authentication.data.Key;
 
 import co.nstant.in.cbor.CborDecoder;
 import co.nstant.in.cbor.CborException;
 import co.nstant.in.cbor.model.Array;
 import co.nstant.in.cbor.model.ByteString;
-import co.nstant.in.cbor.model.Number;
 import co.nstant.in.cbor.model.DataItem;
 import co.nstant.in.cbor.model.Map;
 import co.nstant.in.cbor.model.UnicodeString;
@@ -43,12 +41,14 @@ import co.nstant.in.cbor.model.UnicodeString;
  */
 class AttestationDecoder {
 
+    private static final Logger logger = LoggerFactory.getLogger("amAuth");
+
     /**
      * Decode the byte data, converting it into rich objects which can be reasoned about.
      * @param attestationData the data as bytes.
      * @return the data as an AttestationObject.
      */
-    AttestationObject decode(byte[] attestationData) {
+    AttestationObject decode(byte[] attestationData) throws DecodingException {
 
         AttestationObject attestationObject = new AttestationObject();
         ByteArrayInputStream bais = new ByteArrayInputStream(attestationData);
@@ -67,7 +67,7 @@ class AttestationDecoder {
                 }
                 if (((UnicodeString) key).getString().equals("authData")) {
                     byte[] authData = ((ByteString) attObjMap.get(key)).getBytes();
-                    attestationObject.authData = decodeAuthData(authData);
+                    attestationObject.authData = AuthDataDecoder.decode(authData);
                 }
                 if (((UnicodeString) key).getString().equals("attStmt")) {
                     Map attSmtMap = (Map) attObjMap.get(key);
@@ -98,80 +98,24 @@ class AttestationDecoder {
             }
         }
         FidoAttestationStatement attestationStatement = new FidoAttestationStatement();
-        attestationStatement.attestnCert = attestnCert;
+        attestationStatement.attestnCerts = new ArrayList<>();
+        X509Certificate cert = createCert(attestnCert);
+        if (cert != null) {
+            attestationStatement.attestnCerts.add(cert);
+        }
         attestationStatement.caCert = caCert;
         attestationStatement.sig = sig;
         return attestationStatement;
     }
 
-    private AuthData decodeAuthData(byte[] authDataAsBytes) {
-        AuthData authData = new AuthData();
-        authData.rpIdHash = Arrays.copyOfRange(authDataAsBytes, 0, 32);
-
-        BitSet flags = BitSet.valueOf(Arrays.copyOfRange(authDataAsBytes, 32, 33));
-        authData.attestationFlags = new AttestationFlags(flags);
-
-        byte[] signCount = Arrays.copyOfRange(authDataAsBytes, 33, 37);
-        ByteBuffer wrapped = ByteBuffer.wrap(signCount);
-        authData.signCount = wrapped.getInt();
-
-        authData.attestedCredentialData = addAttestedCredentialData(authDataAsBytes);
-
-        return authData;
-    }
-
-    private AttestedCredentialData addAttestedCredentialData(byte[] authData) {
-        AttestedCredentialData attestedCredentialData = new AttestedCredentialData();
-
-        attestedCredentialData.aaguid = Arrays.copyOfRange(authData, 37, 53);
-
-        byte[] credentialIdLength = Arrays.copyOfRange(authData, 53, 55);
-        ByteBuffer wrapped = ByteBuffer.wrap(credentialIdLength);
-        int credentialIdLengthValue = wrapped.getShort();
-        attestedCredentialData.credentialIdLength = credentialIdLengthValue;
-
-        int index = 55;
-        if (credentialIdLengthValue > 0) {
-            attestedCredentialData.credentialId = Arrays.copyOfRange(authData, 55, 55 + credentialIdLengthValue);
-            index = index + credentialIdLengthValue;
-        }
-
-        byte[] publicKeyBytes = Arrays.copyOfRange(authData, index, authData.length);
-
-        List<DataItem> dataItems = null;
+    private static X509Certificate createCert(byte[] certData){
         try {
-            dataItems = new CborDecoder(new ByteArrayInputStream(publicKeyBytes)).decode();
-        } catch (CborException e) {
-            e.printStackTrace();
+            CertificateFactory cf = CertificateFactory.getInstance("X509");
+            return (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(certData));
         }
-        Key publicKey = new Key();
-        Map attObjMap = (Map) dataItems.get(0);
-        for (DataItem key : attObjMap.getKeys()) {
-            if (key instanceof Number) {
-                if (((Number) key).getValue().intValue() == 1) {
-                    Number value = (Number) attObjMap.get(key);
-                    publicKey.keyType = value.getValue().intValue();
-                }
-                if (((Number) key).getValue().intValue() == 3) {
-                    Number value = (Number) attObjMap.get(key);
-                    publicKey.alg = value.getValue().intValue();
-                }
-                if (((Number) key).getValue().intValue() == -1) {
-                    Number value = (Number) attObjMap.get(key);
-                    publicKey.curve = value.getValue().intValue();
-                }
-                if (((Number) key).getValue().intValue() == -2) {
-                    ByteString value = (ByteString) attObjMap.get(key);
-                    publicKey.xpos = value.getBytes();
-                }
-                if (((Number) key).getValue().intValue() == -3) {
-                    ByteString value = (ByteString) attObjMap.get(key);
-                    publicKey.ypos = value.getBytes();
-                }
-            }
+        catch (Exception e) {
+            logger.debug("failed to convert certificate data into a certificate object");
+            return null;
         }
-
-        attestedCredentialData.publicKey = publicKey;
-        return attestedCredentialData;
     }
 }

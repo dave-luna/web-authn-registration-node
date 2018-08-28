@@ -43,13 +43,16 @@ import org.forgerock.openam.auth.node.api.NodeProcessException;
 import org.forgerock.openam.auth.node.api.TreeContext;
 import org.forgerock.openam.core.CoreWrapper;
 import org.forgerock.openam.utils.CrestQuery;
-import org.forgerock.openam.utils.JsonValueBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.inject.assistedinject.Assisted;
 import com.iplanet.sso.SSOException;
 import com.magicalteam.authentication.data.Key;
+import com.magicalteam.authentication.database.AuthenticatorEntry;
+import com.magicalteam.authentication.database.DatabaseAccess;
+import com.magicalteam.authentication.database.WebAuthData;
+import com.magicalteam.authentication.flows.AuthenticationFlow;
 import com.sun.identity.authentication.callbacks.HiddenValueCallback;
 import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
 import com.sun.identity.idm.AMIdentity;
@@ -65,13 +68,13 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
 
     private static final String OUTCOME = "webAuthNOutcome";
     private static final String BUNDLE = WebAuthnAuthenticationNode.class.getName().replace(".", "/");
-    private static final String WAN_CHALLENGE = "wan-challenge";
-    private static final String CREDENTIAL_ID = "credential-id";
+    private static final String CHALLENGE = "web-authn-challenge";
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
     private final ChallengeGenerator challengeGenerator;
     private final CoreWrapper coreWrapper;
+    private DatabaseAccess databaseAccess;
     private AuthenticationFlow authenticationFlow;
 
     /**
@@ -103,36 +106,38 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
         this.challengeGenerator = challengeGenerator;
         this.coreWrapper = coreWrapper;
         this.authenticationFlow = authenticationFlow;
+        this.databaseAccess = new DatabaseAccess(config.keyStorageAttribute());
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
         JsonValue sharedState = context.sharedState;
 
         byte[] challengeBytes;
-        if(context.sharedState.get(WAN_CHALLENGE).isNull()) {
+        if(context.sharedState.get(CHALLENGE).isNull()) {
             challengeBytes = challengeGenerator.getNewChallenge();
             String base64String = Base64.encodeBase64String(challengeBytes);
-            sharedState = sharedState.copy().put(WAN_CHALLENGE, base64String);
+            sharedState = sharedState.copy().put(CHALLENGE, base64String);
         } else {
-            String base64String = context.sharedState.get(WAN_CHALLENGE).asString();
+            String base64String = context.sharedState.get(CHALLENGE).asString();
             challengeBytes = Base64.decodeBase64(base64String);
         }
 
-        String credentialId = null;
-        String keyAsJson = null;
+        WebAuthData webAuthData;
         try {
-            credentialId = getIdentity(context.sharedState.get(USERNAME).asString(),
-                    context.sharedState.get(REALM).asString()).getAttribute(config.keyStorageAttribute())
-                    .iterator().next();
-            keyAsJson = credentialId.substring(credentialId.indexOf("|") + 1);
-            credentialId = credentialId.substring(0, credentialId.indexOf("|"));
+            AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(), context.sharedState.get(REALM).asString());
+            webAuthData = databaseAccess.getWebAuthData(user);
+            if (webAuthData.getAuthenticators().isEmpty()) {
+                // user has no registered devices TODO add additional 'not registered' outome to node.
+                return goTo(false).build();
+            }
         } catch (IdRepoException | SSOException e) {
             e.printStackTrace();
+            return goTo(false).build();
         }
 
         String webAuthnRegistrationScript = getScriptAsString("client-auth-script.js");
         webAuthnRegistrationScript = String.format(webAuthnRegistrationScript, Arrays.toString(challengeBytes),
-                Arrays.toString(Base64.decodeBase64(credentialId)));
+                getDevicesAsJavaScript(webAuthData));
 
         ResourceBundle bundle = context.request.locales
                 .getBundleInPreferredLocale(BUNDLE, OutcomeProvider.class.getClassLoader());
@@ -144,17 +149,11 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                 .map(HiddenValueCallback::getValue)
                 .filter(scriptOutput -> !Strings.isNullOrEmpty(scriptOutput));
 
-        Key myKeyData = null;
-
-        try {
-            myKeyData = JsonValueBuilder.getObjectMapper().readValue(keyAsJson, Key.class);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
         if (result.isPresent()) {
             String results = result.get();
             String[] resultsArray = results.split("SPLITTER");
+            String credentialId = resultsArray[3];
+            Key myKeyData = getEntry(credentialId, webAuthData).key;
             byte[] authenticatorData = getBytesFromNumbers(resultsArray[1]);
             byte[] signature = getBytesFromNumbers(resultsArray[2]);
             if(authenticationFlow.accept(resultsArray[0], authenticatorData, signature, challengeBytes, myKeyData,
@@ -175,6 +174,39 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
         }
     }
 
+    private AuthenticatorEntry getEntry(String credentialId, WebAuthData webAuthData) {
+        Map<String, AuthenticatorEntry> authenticators = webAuthData.getAuthenticators();
+        for (AuthenticatorEntry entry : authenticators.values()) {
+            if (entry.credentialId.equals(credentialId)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    private String getDevicesAsJavaScript(WebAuthData webAuthData) {
+        StringBuilder stringBuilder = new StringBuilder();
+        boolean firstItem = true;
+        for (String authenticatorId : webAuthData.getAuthenticators().keySet()) {
+            if (!firstItem) {
+                stringBuilder.append(",\n");
+            }
+            stringBuilder.append(getDeviceAsJavaScript(webAuthData.getAuthenticators().get(authenticatorId)));
+            firstItem = false;
+        }
+        return stringBuilder.toString();
+    }
+
+    private String getDeviceAsJavaScript(AuthenticatorEntry authenticatorEntry) {
+        String credentialId = authenticatorEntry.credentialId;
+        String template = "{\n" +
+                "     type: \"public-key\",\n" +
+                "         id: new Int8Array(%1$s).buffer\n" +
+                " }";
+        String decodedId = Arrays.toString(Base64.decodeBase64(credentialId));
+        return String.format(template, decodedId);
+    }
+
     private AMIdentity getIdentity(String username, String realm) throws IdRepoException, SSOException {
         AMIdentityRepository idrepo = coreWrapper.getAMIdentityRepository(
                 coreWrapper.convertRealmDnToRealmPath(realm));
@@ -185,7 +217,6 @@ public class WebAuthnAuthenticationNode extends AbstractDecisionNode {
                 new CrestQuery(username), idSearchControl);
         return idSearchResults.getSearchResults().iterator().next();
     }
-
 
     private byte[] getBytesFromNumbers(String data) {
         byte[] results = new byte[data.length()];

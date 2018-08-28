@@ -51,7 +51,12 @@ import org.slf4j.LoggerFactory;
 
 import com.google.inject.assistedinject.Assisted;
 import com.iplanet.sso.SSOException;
+import com.magicalteam.authentication.data.AttestationObject;
 import com.magicalteam.authentication.data.AttestedCredentialData;
+import com.magicalteam.authentication.database.AuthenticatorEntry;
+import com.magicalteam.authentication.database.DatabaseAccess;
+import com.magicalteam.authentication.database.WebAuthData;
+import com.magicalteam.authentication.flows.RegisterFlow;
 import com.sun.identity.authentication.callbacks.HiddenValueCallback;
 import com.sun.identity.authentication.callbacks.ScriptTextOutputCallback;
 import com.sun.identity.idm.AMIdentity;
@@ -67,13 +72,15 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
     private static final String OUTCOME = "webAuthNOutcome";
     private static final String BUNDLE = WebAuthnRegistrationNode.class.getName().replace(".", "/");
-    private static final String WAN_CHALLENGE = "wan-challenge";
-    private static final String CREDENTIAL_ID = "credential-id";
+    private static final String CHALLENGE = "web-reg-challenge";
+    private static final String ANON_AUTHENTICATOR_ID = "anon";
+    public static final String VALUE_SPLITTER = "SPLITTER";
     private final Logger logger = LoggerFactory.getLogger("amAuth");
     private final Config config;
 
     private RegisterFlow registerFlow;
     private ChallengeGenerator challengeGenerator;
+    private DatabaseAccess databaseAccess;
 
     private final CoreWrapper coreWrapper;
 
@@ -111,18 +118,20 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
         this.challengeGenerator = challengeGenerator;
         this.registerFlow = registerFlow;
         this.coreWrapper = coreWrapper;
+        this.databaseAccess = new DatabaseAccess(config.keyStorageAttribute());
     }
 
     public Action process(TreeContext context) throws NodeProcessException {
         JsonValue sharedState = context.sharedState;
 
+
         byte[] challengeBytes;
-        if(context.sharedState.get(WAN_CHALLENGE).isNull()) {
+        if(context.sharedState.get(CHALLENGE).isNull()) {
             challengeBytes = challengeGenerator.getNewChallenge();
             String base64String = Base64.encodeBase64String(challengeBytes);
-            sharedState = sharedState.copy().put(WAN_CHALLENGE, base64String);
+            sharedState = sharedState.copy().put(CHALLENGE, base64String);
         } else {
-            String base64String = context.sharedState.get(WAN_CHALLENGE).asString();
+            String base64String = context.sharedState.get(CHALLENGE).asString();
             challengeBytes = Base64.decodeBase64(base64String);
         }
 
@@ -143,29 +152,24 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
 
         if (result.isPresent()) {
             String results = result.get();
-            String[] resultsArray = results.split("SPLITTER");
+            String[] resultsArray = results.split(VALUE_SPLITTER);
             byte[] attestationData = getBytesFromNumbers(resultsArray[1]);
-            AttestedCredentialData acd = registerFlow.accept(resultsArray[0], attestationData, challengeBytes, rpId,
+            AttestationObject attestationObject = registerFlow.accept(resultsArray[0], attestationData, challengeBytes, rpId,
                     config.isUserVerificationRequired());
-            String credentialId = resultsArray[2];
-            if (acd != null) {
-                try {
-                    AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
-                            context.sharedState.get(REALM).asString());
-                    Map<String, Set<String>> attrs = new HashMap<>();
-                    attrs.put(config.keyStorageAttribute(),
-                            Collections.singleton(credentialId + "|" + acd.publicKey.toString()));
-                    user.setAttributes(attrs);
-                    user.store();
-                } catch (IdRepoException | SSOException e) {
-                    return goTo(false).build();
-                }
-                sharedState = sharedState.copy().put(CREDENTIAL_ID, resultsArray[2]);
-                return goTo(true).replaceSharedState(sharedState).build();
-            } else {
-                logger.error("no attestation data was returned after registration flow");
+
+            try {
+                AMIdentity user = getIdentity(context.sharedState.get(USERNAME).asString(),
+                        context.sharedState.get(REALM).asString());
+                WebAuthData webAuthData = databaseAccess.getWebAuthData(user);
+                addAuthenticatorEntry(webAuthData, attestationObject, resultsArray[2]);
+                Map<String, Set<String>> attrs = new HashMap<>();
+                attrs.put(config.keyStorageAttribute(), Collections.singleton(JsonMapping.asString(webAuthData)));
+                user.setAttributes(attrs);
+                user.store();
+            } catch (IdRepoException | SSOException e) {
                 return goTo(false).build();
             }
+            return goTo(true).build();
         } else {
             ScriptTextOutputCallback webAuthNRegistrationCallback = new ScriptTextOutputCallback(webAuthnRegistrationScript);
             ScriptTextOutputCallback spinnerCallback = new ScriptTextOutputCallback(spinnerScript);
@@ -176,6 +180,16 @@ public class WebAuthnRegistrationNode extends AbstractDecisionNode {
                     .replaceSharedState(sharedState)
                     .build();
         }
+    }
+
+    private void addAuthenticatorEntry(WebAuthData webAuthData, AttestationObject attestationObject, String credentialId) {
+        AttestedCredentialData acd = attestationObject.authData.attestedCredentialData;
+        AuthenticatorEntry authenticatorEntry = new AuthenticatorEntry(credentialId, acd.publicKey);
+        String authenticatorId = ANON_AUTHENTICATOR_ID;
+        if (attestationObject.attestationStatement.attestnCerts.size() > 0) {
+            authenticatorId = attestationObject.attestationStatement.attestnCerts.get(0).getSubjectDN().toString();
+        }
+        webAuthData.getAuthenticators().put(authenticatorId, authenticatorEntry);
     }
 
     private AMIdentity getIdentity(String username, String realm) throws IdRepoException, SSOException {

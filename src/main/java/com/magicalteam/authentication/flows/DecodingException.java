@@ -13,18 +13,10 @@
  *
  * Copyright 2018 ForgeRock AS.
  */
-package com.magicalteam.authentication.data;
-
-import java.security.cert.X509Certificate;
-import java.util.List;
+package com.magicalteam.authentication.flows;
 
 /**
- * Represents https://www.w3.org/TR/webauthn/#attestation-statement
- * Specifically the FIDO u2f format https://www.w3.org/TR/webauthn/#fido-u2f-attestation
+ * Indicates an error has occurred when attempting to decode a web authentication response.
  */
-public class FidoAttestationStatement {
-    // TODO the certs should be an array !
-    public List<X509Certificate> attestnCerts;
-    public byte[] caCert;
-    public byte[] sig;
+class DecodingException extends Exception {
 }
